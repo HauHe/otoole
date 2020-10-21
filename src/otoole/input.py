@@ -9,6 +9,9 @@ Example
 Convert an in-memory dictionary of pandas DataFrames containing OSeMOSYS parameters
 to an Excel spreadsheet::
 
+>>> from otoole.read_strategies import ReadMemory
+>>> from otoole.write_strategies import WriteExcel
+>>> from otoole.input import Context
 >>> reader = ReadMemory(parameters)
 >>> writer = WriteExcel()
 >>> converter = Context(read_strategy=reader, write_strategy=writer)
@@ -16,6 +19,9 @@ to an Excel spreadsheet::
 
 Convert a GNUMathProg datafile to a folder of CSV files::
 
+>>> from otoole.read_strategies import ReadDataFile
+>>> from otoole.write_strategies import WriteCsv
+>>> from otoole.input import Context
 >>> reader = ReadDataFile()
 >>> writer = WriteCsv()
 >>> converter = Context(read_strategy=reader, write_strategy=writer)
@@ -23,6 +29,9 @@ Convert a GNUMathProg datafile to a folder of CSV files::
 
 Convert a GNUMathProg datafile to a folder of Tabular DataPackage::
 
+>>> from otoole.read_strategies import ReadDataFile
+>>> from otoole.write_strategies import WriteDatapackage
+>>> from otoole.input import Context
 >>> reader = ReadDataFile()
 >>> writer = WriteDatapackage()
 >>> converter = Context(read_strategy=reader, write_strategy=writer)
@@ -235,6 +244,16 @@ class ReadStrategy(Strategy):
     The Context uses this interface to call the algorithm defined by Concrete
     Strategies.
     """
+
+    def _check_index(self, input_data: Dict):
+        """Checks and applied that an index is applied to the parameter DataFrame
+        """
+        for name, df in input_data.items():
+            details = self.config[name]
+            try:
+                df.set_index(details["indices"], inplace=True)
+            except KeyError:
+                logger.debug("Parameter %s is indexed", name)
 
     @abstractmethod
     def read(self, filepath: str) -> Tuple[Dict[str, pd.DataFrame], Dict[str, Any]]:
