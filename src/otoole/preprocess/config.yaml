@@ -181,6 +181,10 @@ ResidualStorageCapacity:
     type: param
     dtype: float
     default: 999
+ResultsPath:
+    type: param
+    dtype: string
+    default: '.'
 RETagFuel:
     indices: [REGION,FUEL,YEAR]
     type: param

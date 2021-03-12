@@ -2,6 +2,24 @@
     "profile": "tabular-data-package",
     "resources": [
         {
+            "path": "data/ResultsPath.csv",
+            "profile": "tabular-data-resource",
+            "name": "ResultsPath",
+            "format": "csv",
+            "mediatype": "text/csv",
+            "encoding": "utf-8",
+            "schema": {
+                "fields": [
+                    {
+                        "name": "VALUE",
+                        "type": "string",
+                        "format": "default"
+                    }
+                ],
+                "missingValues": [""]
+            }
+        },
+        {
             "path": "data/default_values.csv",
             "profile": "tabular-data-resource",
             "name": "default_values",
