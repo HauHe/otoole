@@ -81,6 +81,28 @@ And then convert it back again::
 
     otoole convert excel datafile simplicity.xlsx simplicity.txt
 
+To create a folder of CSV files from an Excel workbook::
+
+    otoole convert excel csv simplicity.xlsx simplicity
+
+To convert back again, run the following command::
+
+    otoole convert csv excel simplicity simplicity.xlsx
+
+In each of the examples, you provide the path to the file or folder, depending on the context.
+For a datapackage, you need to provide the path to the ``datapackage.json`` file::
+
+    otoole convert datapackage datafile simplicity/datapackage.json simplicity.txt
+
+The Excel workbook is created in a specific format. Each tab in the workbook corresponds to one set or parameter.
+Parameters with a ``YEAR`` index are pivotted, so that the elements in set ``YEAR`` create columns in a table, with
+the first columns holding the remaining indices. For example the ``AccumulatedAnnualDemand`` parameter in the simplicity
+example model looks like this in the workbook::
+
+    REGION,FUEL,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024,2025,2026,2027,2028,2029,2030,2031,2032,2033,2034,2035,2036,2037,2038,2039,2040
+    SIMPLICITY,ETH,1,1.03,1.061,1.093,1.126,1.159,1.194,1.23,1.267,1.305,1.344,1.384,1.426,1.469,1.513,1.558,1.605,1.653,1.702,1.754,1.806,1.86,1.916,1.974,2.033,2.094,2.157
+    SIMPLICITY,RAWSUG,0.5,0.51,0.519,0.529,0.538,0.548,0.558,0.567,0.577,0.587,0.596,0.606,0.615,0.625,0.635,0.644,0.654,0.663,0.673,0.683,0.692,0.702,0.712,0.721,0.731,0.74,0.75
+
 Results and Post-processing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -91,11 +113,11 @@ CBC is an alternative open-source solver which offers better performance than GL
 much larger models. However, CBC has no way of knowing how to write out the CSV files you were used
 to dealing with when using GLPK.  *otoole* to the rescue!
 
-*otoole* currently supports using CBC with all three versions of GNU MathProg OSeMOSYS
-- the long, short and fast versions.
+*otoole* currently supports using CBC, CPLEX or Gurobi with all three versions of
+GNU MathProg OSeMOSYS - the long, short and fast versions.
 
 The long version includes all results as variables within the formulation,
-so the ``otoole results`` command parses the CBC solution file,
+so the ``otoole results`` command parses the solution file,
 extracts the required variables, and produces a folder of CSV files containing the results
 in an identical format to if you had used GLPK.
 
@@ -104,46 +126,20 @@ so as to speed up the model matrix generation and solution times.
 As of PR #40 *otoole* now supports the majority of these calculated results so as to match
 those produced by the long version of the code.
 
-``otoole cplex``
-================
-
-If you're using CPLEX, *otoole* contains a script which converts the CPLEX output to
-something that looks like CBC. You can then use the ``otoole results`` command to
-produce CSVs of the output::
-
-    $ otoole cplex --help
-
-    usage: otoole cplex [-h] [-s START_YEAR] [-e END_YEAR]
-                        cplex_file output_file {csv,cbc}
-
-    positional arguments:
-    cplex_file            The filepath of the OSeMOSYS cplex output file
-    output_file           The filepath of the converted file that will be
-                            written
-    {csv,cbc}
-
-    optional arguments:
-    -h, --help            show this help message and exit
-    -s START_YEAR, --start_year START_YEAR
-                            Output only the results from this year onwards
-    -e END_YEAR, --end_year END_YEAR
-                            Output only the results upto and including this year
-
-
 ``otoole results``
 ==================
 
 
-The ``results`` command creates a folder of CSV result files from a CBC solution file::
+The ``results`` command creates a folder of CSV result files from a CBC, CLP, Gurobi or CPLEX
+solution file::
 
     $ otoole results --help
-
     usage: otoole results [-h] [--input_datapackage INPUT_DATAPACKAGE]
                         [--input_datafile INPUT_DATAFILE]
-                        {cbc} {csv} from_path to_path
+                        {cbc,cplex} {csv} from_path to_path
 
     positional arguments:
-    {cbc}                 Result data format to convert from
+    {cbc,cplex,gurobi}    Result data format to convert from
     {csv}                 Result data format to convert to
     from_path             Path to file or folder to convert from
     to_path               Path to file or folder to convert to
@@ -151,18 +147,17 @@ The ``results`` command creates a folder of CSV result files from a CBC solution
     optional arguments:
     -h, --help            show this help message and exit
     --input_datapackage INPUT_DATAPACKAGE
-                          Input data package required for OSeMOSYS short or fast
-                          results
+                            Input data package required for OSeMOSYS short or fast
+                            results
     --input_datafile INPUT_DATAFILE
-                          Input GNUMathProg datafile required for OSeMOSYS short
-                          or fast results
-
+                            Input GNUMathProg datafile required for OSeMOSYS short
+                            or fast results
 
 This is typically required when using the CBC solver with an LP file generated using
 GLPK. For example::
 
     # Obtain the simplicity datafile from the Zenodo datapackage archive of the model
-    otoole convert datapackage datafile https://zenodo.org/record/3479823/files/KTH-dESA/simplicity-v0.1a0.zip simplicity.txt
+    otoole convert datapackage datafile simplicity simplicity.txt
     # Create an LP file using glpsol
     glpsol -m osemosys_short.txt -d simplicity.txt --wlp simplicity.lp
     # Solve the model using CBC and write a CBC solution file
@@ -174,6 +169,8 @@ You're now ready to use otoole to generate a folder of CSV files from the CBC so
 
 *otoole* has duplicate Python methods for each of the result calculations performed in the long, short and fast OSeMOSYS
 implementations (which are only used when using GLPK as a solver).
+
+If using CPLEX, note that you need to first sort the CPLEX file which you can do from the command line e.g. ``sort cplex.sol``.
 
 ``otoole viz res``
 ==================
