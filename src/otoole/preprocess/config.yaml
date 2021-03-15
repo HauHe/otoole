@@ -184,7 +184,6 @@ ResidualStorageCapacity:
 ResultsPath:
     type: param
     dtype: string
-    default: '.'
 RETagFuel:
     indices: [REGION,FUEL,YEAR]
     type: param
