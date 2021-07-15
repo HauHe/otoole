@@ -1,0 +1,14 @@
+name: otoole_osembe
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - pip
+  - python=3.7
+  - pandas
+  - networkx
+  - datapackage
+  - graphviz=2.46.1
+  - xlrd
+  - pip:
+    - git+https://github.com/HauHe/otoole.git@osembe
