@@ -1,44 +1,27 @@
 # -*- coding: utf-8 -*-
-from pkg_resources import get_distribution, DistributionNotFound
+import sys
 
-from otoole.input import Context
-from otoole.read_strategies import (
-    ReadCsv,
-    ReadDatafile,
-    ReadDatapackage,
-    ReadExcel,
-    ReadMemory,
-)
-from otoole.write_strategies import (
-    WriteCsv,
-    WriteDatafile,
-    WriteDatapackage,
-    WriteExcel,
-)
-from otoole.results.results import ReadCbc, ReadCplex, ReadGurobi
+from otoole.convert import convert, convert_results, read, read_results, write
+
+if sys.version_info[:2] >= (3, 8):
+    # TODO: Import directly (no need for conditional) when `python_requires = >= 3.8`
+    from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
+else:
+    from importlib_metadata import PackageNotFoundError, version  # pragma: no cover
 
 try:
     # Change here if project is renamed and does not equal the package name
     dist_name = __name__
-    __version__ = get_distribution(dist_name).version
-except DistributionNotFound:
+    __version__ = version(dist_name)
+except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 finally:
-    del get_distribution, DistributionNotFound
+    del version, PackageNotFoundError
 
+convert = convert
+convert_results = convert_results
+read = read
+write = write
+read_results = read_results
 
-__all__ = [
-    "Context",
-    "ReadCbc",
-    "ReadCsv",
-    "ReadCplex",
-    "ReadDatafile",
-    "ReadDatapackage",
-    "ReadExcel",
-    "ReadGurobi",
-    "ReadMemory",
-    "WriteCsv",
-    "WriteDatafile",
-    "WriteDatapackage",
-    "WriteExcel",
-]
+__all__ = ["convert" "convert_results", "read", "write", "read_results"]

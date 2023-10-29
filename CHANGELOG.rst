@@ -2,8 +2,63 @@
 Changelog
 =========
 
+Version 1.1.0
+=============
+- Public Python API added to call otoole directly in Python files
+- ReadCplex directly reads in CPLEX solution files. Drops the need to transform and sort solution files
+- ReadGlpk class added to process GLPK solution files
+- Update to Pydantic v2.0
+- ReadResultsCbc renamed to ReadWideResults
+- Model validation instructions updated in documentation
+- The ``--input_datafile`` argument is deprecated, and the user now must supply the input data to process results
+- Locks pandas to <2.1
+
+Version 1.0.4
+=============
+- Fixed issue with pydantic v2.0.0
+- Dropped support for Python 3.8. Otoole now requires Python 3.9 or later
+
+Version 1.0.3
+=============
+- Improved error message for multiple names mismatches
+- Fix for excel pivoting bug (issue 171)
+- Fix data type casting issue for floats to ints (issue 167)
+- Deprecates calculated field for Result definitions in config file (issue 173)
+- Minor documentation updates
+
+Version 1.0.2
+=============
+- Fix of pandas version in setup.cfg
+
+Version 1.0.1
+=============
+- Updates to citation file
+- Relink to coveralls
+- Upgrade to pandas 2.0
+- Add issue and PR templates
+- Add reading checks between config file and input data
+
+Version 1.0.0
+=============
+- Requires explicit provision of a user-defined configuration file for otoole to workbook
+- Deprecates datapackage fuctionality
+- Adds setup command to generate template config.yaml and csv files
+- Documentation update
+- Bumped pyscaffold to 4.2
+- Otoole now requires Python 3.8 or later
+
+Version 0.11.0
+==============
+- Foundation for user defined configuration
+- Fix for issue #101
+- Better writing of floating point numbers as text
+
+Version 0.10.0
+==============
+- Adds support for OSeMOSYS v1.0, Gurobi and CBC
+
 Version 0.9
-==========
+===========
 - Adds support for processing Gurobi solution files
 - Better handling of datatypes when converting datapackages
 - Fixing bugs on Windows where empty lines were written out during conversion to datapackage

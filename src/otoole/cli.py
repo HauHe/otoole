@@ -3,18 +3,17 @@
 The key functions are **convert**, **cplex** and **viz**.
 
 The ``convert`` command allows convertion of multiple different OSeMOSYS input formats
-including from/to csv, an AMPL format datafile, a Tabular Data Package, a folder of
+including from/to csv, an AMPL format datafile, a folder of
 CSVs, an Excel workbook with one tab per parameter, an SQLite database
 
 The ``cplex`` command provides access to scripts which transform and process a CPLEX
 solution file into a format which is more readily processed - either to CBC or CSV
 format.
 
-The ``validate`` command checks the technology and fuel names of a tabular data package
+The ``validate`` command checks the technology and fuel names
 against a standard or user defined configuration file.
 
-The **viz** command allows you to produce a Reference Energy System diagram from a
-Tabular Data Package.
+The **viz** command allows you to produce a Reference Energy System diagram
 
 Example
 -------
@@ -41,133 +40,108 @@ Ask for help on the command line::
 """
 import argparse
 import logging
+import os
+import shutil
 import sys
 
-from otoole import (
-    ReadCbc,
-    ReadCplex,
-    ReadCsv,
-    ReadDatafile,
-    ReadDatapackage,
-    ReadExcel,
-    ReadGurobi,
-    WriteCsv,
-    WriteDatafile,
-    WriteDatapackage,
-    WriteExcel,
-    __version__,
-)
-from otoole.input import Context
+from otoole import __version__, convert, convert_results, read
+from otoole.exceptions import OtooleSetupError
+from otoole.preprocess.setup import get_config_setup_data, get_csv_setup_data
 from otoole.utils import read_packaged_file
 from otoole.validate import main as validate
 from otoole.visualise import create_res
+from otoole.write_strategies import WriteCsv
 
 logger = logging.getLogger(__name__)
 
 
 def validate_model(args):
-    file_format = args.format
+    data_format = args.data_format
+    data_file = args.data_file
+    user_config = args.user_config
 
-    if args.config:
-        config = read_packaged_file(args.config)
-        validate(file_format, args.filepath, config)
+    input_data, _ = read(user_config, data_format, data_file)
+
+    if args.validate_config:
+        validation_config = read_packaged_file(args.validate_config)
+        validate(input_data, validation_config)
     else:
-        validate(file_format, args.filepath)
+        validate(input_data)
 
 
-def cplex2cbc(args):
-    ReadCplex()._convert_cplex_file(
-        args.cplex_file,
-        args.output_file,
-        args.start_year,
-        args.end_year,
-        args.output_format,
+def _result_matrix(args):
+    """Covert results"""
+    convert_results(
+        args.config,
+        args.from_format,
+        args.to_format,
+        args.from_path,
+        args.to_path,
+        args.input_format,
+        args.input_path,
+        write_defaults=args.write_defaults,
+        glpk_model=args.glpk_model,
     )
 
 
-def result_matrix(args):
-    """Post-process results from CBC solution file into CSV format
-
-    """
-    msg = "Conversion from {} to {} is not yet implemented".format(
-        args.from_format, args.to_format
-    )
-
-    read_strategy = None
-    write_strategy = None
-
-    if args.from_format == "cbc":
-        read_strategy = ReadCbc()
-    elif args.from_format == "cplex":
-        read_strategy = ReadCplex()
-    elif args.from_format == "gurobi":
-        read_strategy = ReadGurobi()
-
-    if args.to_format == "csv":
-        write_strategy = WriteCsv()
-
-    if args.input_datapackage:
-        input_data, _ = ReadDatapackage().read(args.input_datapackage)
-    elif args.input_datafile:
-        input_data, _ = ReadDatafile().read(args.input_datafile)
-    else:
-        input_data = {}
-
-    if read_strategy and write_strategy:
-        context = Context(read_strategy, write_strategy)
-        context.convert(args.from_path, args.to_path, input_data=input_data)
-    else:
-        raise NotImplementedError(msg)
-
-
-def conversion_matrix(args):
+def _conversion_matrix(args):
     """Convert from one format to another
 
     Implemented conversion functions::
 
-        from\to     ex cs dp df
-        -----------------------
-        excel       -- yy -- --
-        csv         nn -- yy nn
-        datapackage yy -- -- yy
-        datafile    nn -- yy --
+        from\to     ex cs df
+        --------------------
+        excel       -- yy --
+        csv         nn -- nn
+        datafile    nn -- --
 
     """
-
-    msg = "Conversion from {} to {} is not yet implemented".format(
-        args.from_format, args.to_format
+    convert(
+        args.config,
+        args.from_format,
+        args.to_format,
+        args.from_path,
+        args.to_path,
+        write_defaults=args.write_defaults,
+        keep_whitespace=args.keep_whitespace,
     )
 
-    read_strategy = None
-    write_strategy = None
 
-    if args.from_format == "datafile":
-        read_strategy = ReadDatafile()
-    elif args.from_format == "datapackage":
-        read_strategy = ReadDatapackage()
-    elif args.from_format == "csv":
-        read_strategy = ReadCsv()
-    elif args.from_format == "excel":
-        read_strategy = ReadExcel()
+def data2res(args):
+    """Get input data and call res creation."""
 
-    if args.to_format == "datapackage":
-        write_strategy = WriteDatapackage()
-    elif args.to_format == "excel":
-        write_strategy = WriteExcel()
-    elif args.to_format == "datafile":
-        write_strategy = WriteDatafile()
-    elif args.to_format == "csv":
-        write_strategy = WriteCsv()
+    data_format = args.data_format
+    data_path = args.data_path
+    config = args.config
+    resfile = args.resfile
 
-    if read_strategy and write_strategy:
-        context = Context(read_strategy, write_strategy)
-        context.convert(args.from_path, args.to_path)
-    else:
-        raise NotImplementedError(msg)
+    input_data, _ = read(config, data_format, data_path)
+
+    create_res(input_data, resfile)
 
 
-def datapackage2res(args):
-    create_res(args.datapackage, args.resfile)
+def setup(args):
+    """Creates template data"""
+
+    data_type = args.data_type
+    data_path = args.data_path
+    write_defaults = args.write_defaults
+    overwrite = args.overwrite
+
+    if os.path.exists(data_path) and not overwrite:
+        raise OtooleSetupError(resource=data_path)
+
+    if data_type == "config":
+        shutil.copyfile(
+            os.path.join(os.path.dirname(__file__), "preprocess", "config.yaml"),
+            data_path,
+        )
+    elif data_type == "csv":
+        config = get_config_setup_data()
+        input_data, default_values = get_csv_setup_data(config)
+        WriteCsv(user_config=config).write(
+            input_data, data_path, default_values, write_defaults=write_defaults
+        )
 
 
 def get_parser():
@@ -193,26 +167,37 @@ def get_parser():
     result_parser.add_argument(
         "from_format",
         help="Result data format to convert from",
-        choices=sorted(["cbc", "cplex", "gurobi"]),
+        choices=sorted(["cbc", "cplex", "gurobi", "glpk"]),
     )
     result_parser.add_argument(
-        "to_format", help="Result data format to convert to", choices=sorted(["csv"]),
+        "to_format",
+        help="Result data format to convert to",
+        choices=sorted(["csv"]),
     )
     result_parser.add_argument(
         "from_path", help="Path to file or folder to convert from"
     )
     result_parser.add_argument("to_path", help="Path to file or folder to convert to")
+
     result_parser.add_argument(
-        "--input_datapackage",
-        help="Input data package required for OSeMOSYS short or fast results",
+        "input_format",
+        help="Input data format",
+        choices=sorted(["csv", "datafile", "excel"]),
+    )
+    result_parser.add_argument("input_path", help="Path to input_data")
+    result_parser.add_argument("config", help="Path to config YAML file")
+    result_parser.add_argument(
+        "--glpk_model",
+        help="GLPK model file required for processing GLPK results",
         default=None,
     )
     result_parser.add_argument(
-        "--input_datafile",
-        help="Input GNUMathProg datafile required for OSeMOSYS short or fast results",
-        default=None,
+        "--write_defaults",
+        help="Writes default values",
+        default=False,
+        action="store_true",
     )
-    result_parser.set_defaults(func=result_matrix)
+    result_parser.set_defaults(func=_result_matrix)
 
     # Parser for conversion
     convert_parser = subparsers.add_parser(
@@ -221,31 +206,45 @@ def get_parser():
     convert_parser.add_argument(
         "from_format",
         help="Input data format to convert from",
-        choices=sorted(["datafile", "datapackage", "excel", "csv"]),
+        choices=sorted(["datafile", "excel", "csv"]),
     )
     convert_parser.add_argument(
         "to_format",
         help="Input data format to convert to",
-        choices=sorted(["datafile", "datapackage", "csv", "excel"]),
+        choices=sorted(["datafile", "csv", "excel"]),
     )
     convert_parser.add_argument(
         "from_path", help="Path to file or folder to convert from"
     )
     convert_parser.add_argument("to_path", help="Path to file or folder to convert to")
-    convert_parser.set_defaults(func=conversion_matrix)
+    convert_parser.add_argument("config", help="Path to config YAML file")
+    convert_parser.add_argument(
+        "--write_defaults",
+        help="Writes default values",
+        default=False,
+        action="store_true",
+    )
+    convert_parser.add_argument(
+        "--keep_whitespace",
+        help="Keeps leading/trailing whitespace",
+        default=False,
+        action="store_true",
+    )
+    convert_parser.set_defaults(func=_conversion_matrix)
 
     # Parser for validation
     valid_parser = subparsers.add_parser("validate", help="Validate an OSeMOSYS model")
     valid_parser.add_argument(
-        "format",
-        help="The format of the OSeMOSYS model to validate",
-        choices=["datapackage", "sql"],
+        "data_format",
+        help="Input data format",
+        choices=sorted(["datafile", "excel", "csv"]),
     )
     valid_parser.add_argument(
-        "filepath", help="Path to the OSeMOSYS datapackage.json file to validate"
+        "data_file", help="Path to the OSeMOSYS data file to validate"
     )
+    valid_parser.add_argument("user_config", help="Path to config YAML file")
     valid_parser.add_argument(
-        "--config", help="Path to a user-defined validation-config file"
+        "--validate_config", help="Path to a user-defined validation-config file"
     )
     valid_parser.set_defaults(func=validate_model)
 
@@ -256,11 +255,43 @@ def get_parser():
     res_parser = viz_subparsers.add_parser(
         "res", help="Generate a reference energy system"
     )
-    res_parser.add_argument("datapackage", help="Path to model datapackage")
+    res_parser.add_argument(
+        "data_format",
+        help="Input data format",
+        choices=sorted(["datafile", "excel", "csv"]),
+    )
+    res_parser.add_argument("data_path", help="Input data path")
     res_parser.add_argument("resfile", help="Path to reference energy system")
-    res_parser.set_defaults(func=datapackage2res)
+    res_parser.add_argument("config", help="Path to config YAML file")
+    res_parser.set_defaults(func=data2res)
+
+    # parser for setup
+    setup_parser = subparsers.add_parser("setup", help="Setup template files")
+    setup_parser.add_argument(
+        "data_type", help="Type of file to setup", choices=sorted(["config", "csv"])
+    )
+    setup_parser.add_argument("data_path", help="Path to file or folder to save to")
+    setup_parser.add_argument(
+        "--write_defaults",
+        help="Writes default values",
+        default=False,
+        action="store_true",
+    )
+    setup_parser.add_argument(
+        "--overwrite",
+        help="Overwrites existing data",
+        default=False,
+        action="store_true",
+    )
+    setup_parser.set_defaults(func=setup)
 
     return parser
+
+
+class DeprecateAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        logger.warning(f"Argument {self.option_strings} is deprecated and is ignored.")
+        delattr(namespace, self.dest)
 
 
 def main():
@@ -279,7 +310,7 @@ def main():
         if args.verbose:
             debug_hook(exception_type, exception, traceback)
         else:
-            print("{}: {}".format(exception_type.__name__, exception.message))
+            print("{}: {}".format(exception_type.__name__, str(exception)))
 
     sys.excepthook = exception_handler
 

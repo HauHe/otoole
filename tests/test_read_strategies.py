@@ -3,17 +3,19 @@ from io import StringIO
 from textwrap import dedent
 from typing import List
 
-from pytest import mark
-
 import pandas as pd
 from amply import Amply
+from pytest import mark, raises
 
-from otoole import ReadDatafile, ReadExcel, ReadMemory
+from otoole.exceptions import OtooleDeprecationError, OtooleError
+from otoole.preprocess.longify_data import check_datatypes
+from otoole.read_strategies import ReadCsv, ReadDatafile, ReadExcel, ReadMemory
 from otoole.results.results import (
     ReadCbc,
     ReadCplex,
+    ReadGlpk,
     ReadGurobi,
-    check_duplicate_index,
+    check_for_duplicates,
     identify_duplicate,
     rename_duplicate_column,
 )
@@ -21,133 +23,128 @@ from otoole.results.results import (
 
 class TestReadCplex:
 
-    cplex_empty = "AnnualFixedOperatingCost	REGION	AOBACKSTOP	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0	0"
-    cplex_short = "AnnualFixedOperatingCost	REGION	CDBACKSTOP	0.0	0.0	137958.8400384134	305945.38410619126	626159.9611543404	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0"
-    cplex_long = "RateOfActivity	REGION	S1D1	CGLFRCFURX	1	0.0	0.0	0.0	0.0	0.0	0.3284446367303371	0.3451714779880536	0.3366163200621617	0.3394945166233896	0.3137488154250392	0.28605725055560716	0.2572505015401749	0.06757558148965725	0.0558936625751148	0.04330608461292407	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0	0.0"
+    cplex_data = """<?xml version = "1.0" encoding="UTF-8" standalone="yes"?>
+<CPLEXSolution version="1.2">
+ <header
+   problemName="model.lp"
+   objectiveValue="3942.194792652062"
+   solutionTypeValue="1"
+   solutionTypeString="basic"
+   solutionStatusValue="1"
+   solutionStatusString="optimal"
+   solutionMethodString="dual"
+   primalFeasible="1"
+   dualFeasible="1"
+   simplexIterations="3011"
+   writeLevel="1"/>
+ <quality
+   epRHS="9.9999999999999995e-07"
+   epOpt="9.9999999999999995e-07"
+   maxPrimalInfeas="1.4210854715202004e-13"
+   maxDualInfeas="1.9618827037793883e-12"
+   maxPrimalResidual="5.3193968022437806e-12"
+   maxDualResidual="5.6354920729972946e-13"
+   maxX="1331.0025494901022"
+   maxPi="525.09145670749103"
+   maxSlack="9998.6832048983561"
+   maxRedCost="999999.00000000105"
+   kappa="57958.643677766071"/>
+ <linearConstraints>
+  <constraint name="CAa4_Constraint_Capacity(SIMPLICITY,ID,BACKSTOP1,2014)" index="0" status="BS" slack="-0" dual="0"/>
+  <constraint name="CAa4_Constraint_Capacity(SIMPLICITY,ID,BACKSTOP1,2015)" index="1" status="BS" slack="-0" dual="0"/>
+  <constraint name="CAa4_Constraint_Capacity(SIMPLICITY,ID,BACKSTOP1,2016)" index="2" status="BS" slack="-0" dual="0"/>
+  <constraint name="EBa11_EnergyBalanceEachTS5(SIMPLICITY,IN,DSL,2014)" index="5400" status="LL" slack="0" dual="-2.4281963661332018e-14"/>
+  <constraint name="EBa11_EnergyBalanceEachTS5(SIMPLICITY,IN,DSL,2015)" index="5401" status="LL" slack="0" dual="-4.4565525073113654e-15"/>
+  <constraint name="EBa11_EnergyBalanceEachTS5(SIMPLICITY,IN,DSL,2016)" index="5402" status="LL" slack="0" dual="7.5386542413397867e-15"/>
+  <constraint name="TCC1_TotalAnnualMaxCapacityConstraint(SIMPLICITY,HYD2,2014)" index="11529" status="BS" slack="0.10000000000000001" dual="0"/>
+  <constraint name="TCC1_TotalAnnualMaxCapacityConstraint(SIMPLICITY,HYD2,2015)" index="11530" status="BS" slack="0.10000000000000001" dual="0"/>
+  <constraint name="TCC1_TotalAnnualMaxCapacityConstraint(SIMPLICITY,HYD2,2016)" index="11531" status="BS" slack="0.10000000000000001" dual="0"/>
+ </linearConstraints>
+ <variables>
+  <variable name="NewCapacity(SIMPLICITY,ETHPLANT,2014)" index="54" status="LL" value="0" reducedCost="9.8033882532023107"/>
+  <variable name="NewCapacity(SIMPLICITY,ETHPLANT,2015)" index="55" status="BS" value="0.030000000000000027" reducedCost="0"/>
+  <variable name="NewCapacity(SIMPLICITY,ETHPLANT,2016)" index="56" status="BS" value="0.030999999999999917" reducedCost="0"/>
+  <variable name="RateOfActivity(SIMPLICITY,ID,GRID_EXP,1,2014)" index="6048" status="LL" value="0" reducedCost="2.5520010388720782"/>
+  <variable name="RateOfActivity(SIMPLICITY,ID,GRID_EXP,2,2014)" index="6049" status="LL" value="0" reducedCost="2.5520010388720782"/>
+  <variable name="RateOfActivity(SIMPLICITY,ID,HYD1,1,2020)" index="6108" status="BS" value="0.25228800000000001" reducedCost="0"/>
+  <variable name="RateOfActivity(SIMPLICITY,ID,HYD1,1,2021)" index="6109" status="BS" value="0.25228800000000001" reducedCost="0"/>
+  <variable name="RateOfActivity(SIMPLICITY,ID,HYD1,1,2022)" index="6110" status="BS" value="0.25228800000000001" reducedCost="0"/>
+ </variables>
+ <objectiveValues>
+  <objective index="0" name="cost" value="3942.1947926520666"/>
+ </objectiveValues>
+</CPLEXSolution>"""
 
-    cplex_mid_short = (
-        "AnnualFixedOperatingCost",
-        pd.DataFrame(
-            data=[
-                ["REGION", "CDBACKSTOP", 2017, 137958.8400384134],
-                ["REGION", "CDBACKSTOP", 2018, 305945.38410619126],
-                ["REGION", "CDBACKSTOP", 2019, 626159.9611543404],
+    def test_convert_to_dataframe(self, user_config):
+        input_file = self.cplex_data
+        reader = ReadCplex(user_config)
+        with StringIO(input_file) as file_buffer:
+            actual = reader._convert_to_dataframe(file_buffer)
+        # print(actual)
+        expected = pd.DataFrame(
+            [
+                ["NewCapacity", "SIMPLICITY,ETHPLANT,2015", 0.030000000000000027],
+                ["NewCapacity", "SIMPLICITY,ETHPLANT,2016", 0.030999999999999917],
+                ["RateOfActivity", "SIMPLICITY,ID,HYD1,1,2020", 0.25228800000000001],
+                ["RateOfActivity", "SIMPLICITY,ID,HYD1,1,2021", 0.25228800000000001],
+                ["RateOfActivity", "SIMPLICITY,ID,HYD1,1,2022", 0.25228800000000001],
             ],
-            columns=["REGION", "TECHNOLOGY", "YEAR", "VALUE"],
-        ).set_index(["REGION", "TECHNOLOGY", "YEAR"]),
-    )
+            columns=["Variable", "Index", "Value"],
+        ).astype({"Variable": str, "Index": str, "Value": float})
 
-    cplex_mid_long = (
-        "RateOfActivity",
-        pd.DataFrame(
-            data=[
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2020, 0.3284446367303371],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2021, 0.3451714779880536],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2022, 0.3366163200621617],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2023, 0.3394945166233896],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2024, 0.3137488154250392],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2025, 0.28605725055560716],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2026, 0.2572505015401749],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2027, 0.06757558148965725],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2028, 0.0558936625751148],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2029, 0.04330608461292407],
-            ],
-            columns=[
-                "REGION",
-                "TIMESLICE",
-                "TECHNOLOGY",
-                "MODE_OF_OPERATION",
-                "YEAR",
-                "VALUE",
-            ],
-        ).set_index(["REGION", "TIMESLICE", "TECHNOLOGY", "MODE_OF_OPERATION", "YEAR"]),
-    )
-
-    dataframe_short = {
-        "AnnualFixedOperatingCost": pd.DataFrame(
-            data=[
-                ["REGION", "CDBACKSTOP", 2017, 137958.8400384134],
-                ["REGION", "CDBACKSTOP", 2018, 305945.3841061913],
-                ["REGION", "CDBACKSTOP", 2019, 626159.9611543404],
-            ],
-            columns=["REGION", "TECHNOLOGY", "YEAR", "VALUE"],
-        ).set_index(["REGION", "TECHNOLOGY", "YEAR"])
-    }
-
-    dataframe_long = {
-        "RateOfActivity": pd.DataFrame(
-            data=[
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2020, 0.3284446367303371],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2021, 0.3451714779880536],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2022, 0.3366163200621617],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2023, 0.3394945166233896],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2024, 0.3137488154250392],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2025, 0.28605725055560716],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2026, 0.2572505015401749],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2027, 0.06757558148965725],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2028, 0.0558936625751148],
-                ["REGION", "S1D1", "CGLFRCFURX", 1, 2029, 0.04330608461292407],
-            ],
-            columns=[
-                "REGION",
-                "TIMESLICE",
-                "TECHNOLOGY",
-                "MODE_OF_OPERATION",
-                "YEAR",
-                "VALUE",
-            ],
-        ).set_index(["REGION", "TIMESLICE", "TECHNOLOGY", "MODE_OF_OPERATION", "YEAR"])
-    }
-
-    test_data = [
-        (cplex_short, dataframe_short),
-        (cplex_long, dataframe_long),
-    ]
-
-    @mark.parametrize("cplex_input,expected", test_data, ids=["short", "long"])
-    def test_read_cplex_to_dataframe(self, cplex_input, expected):
-        cplex_reader = ReadCplex()
-
-        input_data = {
-            "YEAR": pd.DataFrame(data=list(range(2015, 2071, 1)), columns=["VALUE"])
-        }
-
-        with StringIO(cplex_input) as file_buffer:
-            actual, _ = cplex_reader.read(file_buffer, input_data=input_data)
-        for name, item in actual.items():
-            pd.testing.assert_frame_equal(item, expected[name])
-
-    test_data_mid = [(cplex_short, cplex_mid_short), (cplex_long, cplex_mid_long)]
-
-    def test_read_empty_cplex_to_dataframe(self):
-        cplex_input = self.cplex_empty
-
-        cplex_reader = ReadCplex()
-
-        input_data = {
-            "YEAR": pd.DataFrame(data=list(range(2015, 2071, 1)), columns=["VALUE"])
-        }
-
-        with StringIO(cplex_input) as file_buffer:
-            data, _ = cplex_reader.read(file_buffer, input_data=input_data)
-        assert "AnnualFixedOperatingCost" in data
-        expected = (
-            pd.DataFrame(columns=["REGION", "TECHNOLOGY", "YEAR", "VALUE"],)
-            .astype({"VALUE": float, "YEAR": int})
-            .set_index(["REGION", "TECHNOLOGY", "YEAR"])
-        )
-        actual = data["AnnualFixedOperatingCost"]
         pd.testing.assert_frame_equal(actual, expected)
 
-    test_data_mid = [(cplex_short, cplex_mid_short), (cplex_long, cplex_mid_long)]
+    def test_solution_to_dataframe(self, user_config):
+        input_file = self.cplex_data
+        reader = ReadCplex(user_config)
+        with StringIO(input_file) as file_buffer:
+            actual = reader.read(file_buffer)
+        # print(actual)
+        expected = (
+            pd.DataFrame(
+                [
+                    ["SIMPLICITY", "ETHPLANT", 2015, 0.030000000000000027],
+                    ["SIMPLICITY", "ETHPLANT", 2016, 0.030999999999999917],
+                ],
+                columns=["REGION", "TECHNOLOGY", "YEAR", "VALUE"],
+            )
+            .astype({"REGION": str, "TECHNOLOGY": str, "YEAR": "int64", "VALUE": float})
+            .set_index(["REGION", "TECHNOLOGY", "YEAR"])
+        )
 
-    @mark.parametrize("cplex_input,expected", test_data_mid, ids=["short", "long"])
-    def test_convert_cplex_to_df(self, cplex_input, expected):
+        pd.testing.assert_frame_equal(actual[0]["NewCapacity"], expected)
 
-        data = cplex_input.split("\t")
-        cplex_reader = ReadCplex()
-        actual = cplex_reader.convert_df(data, 2015, 2070)
-        pd.testing.assert_frame_equal(actual[1], expected[1])
+        expected = (
+            pd.DataFrame(
+                [
+                    ["SIMPLICITY", "ID", "HYD1", 1, 2020, 0.25228800000000001],
+                    ["SIMPLICITY", "ID", "HYD1", 1, 2021, 0.25228800000000001],
+                    ["SIMPLICITY", "ID", "HYD1", 1, 2022, 0.25228800000000001],
+                ],
+                columns=[
+                    "REGION",
+                    "TIMESLICE",
+                    "TECHNOLOGY",
+                    "MODE_OF_OPERATION",
+                    "YEAR",
+                    "VALUE",
+                ],
+            )
+            .astype(
+                {
+                    "REGION": str,
+                    "TIMESLICE": str,
+                    "TECHNOLOGY": str,
+                    "MODE_OF_OPERATION": "int64",
+                    "YEAR": "int64",
+                    "VALUE": float,
+                }
+            )
+            .set_index(
+                ["REGION", "TIMESLICE", "TECHNOLOGY", "MODE_OF_OPERATION", "YEAR"]
+            )
+        )
+        pd.testing.assert_frame_equal(actual[0]["RateOfActivity"], expected)
 
 
 class TestReadGurobi:
@@ -167,12 +164,12 @@ RateOfActivity(SIMPLICITY,ID,FEL1,1,2017) 1.68590281943611
 """
     )
 
-    def test_convert_to_dataframe(self):
+    def test_convert_to_dataframe(self, user_config):
         input_file = self.gurobi_data
-        reader = ReadGurobi()
+        reader = ReadGurobi(user_config)
         with StringIO(input_file) as file_buffer:
             actual = reader._convert_to_dataframe(file_buffer)
-        print(actual)
+        # print(actual)
         expected = pd.DataFrame(
             [
                 ["TotalDiscountedCost", "SIMPLICITY,2014", 1.9360385416218188e02],
@@ -189,12 +186,12 @@ RateOfActivity(SIMPLICITY,ID,FEL1,1,2017) 1.68590281943611
 
         pd.testing.assert_frame_equal(actual, expected)
 
-    def test_solution_to_dataframe(self):
+    def test_solution_to_dataframe(self, user_config):
         input_file = self.gurobi_data
-        reader = ReadGurobi()
+        reader = ReadGurobi(user_config)
         with StringIO(input_file) as file_buffer:
             actual = reader.read(file_buffer)
-        print(actual)
+        # print(actual)
         expected = (
             pd.DataFrame(
                 [
@@ -205,7 +202,7 @@ RateOfActivity(SIMPLICITY,ID,FEL1,1,2017) 1.68590281943611
                 ],
                 columns=["REGION", "YEAR", "VALUE"],
             )
-            .astype({"YEAR": int, "VALUE": float})
+            .astype({"YEAR": "int64", "VALUE": float})
             .set_index(["REGION", "YEAR"])
         )
 
@@ -228,7 +225,7 @@ RateOfActivity(SIMPLICITY,ID,FEL1,1,2017) 1.68590281943611
                     "VALUE",
                 ],
             )
-            .astype({"YEAR": int, "VALUE": float, "MODE_OF_OPERATION": int})
+            .astype({"YEAR": "int64", "VALUE": float, "MODE_OF_OPERATION": "int64"})
             .set_index(
                 ["REGION", "TIMESLICE", "TECHNOLOGY", "MODE_OF_OPERATION", "YEAR"]
             )
@@ -258,15 +255,22 @@ class TestReadCbc:
         columns=["REGION", "_REGION", "TIMESLICE", "FUEL", "YEAR", "VALUE"],
     ).set_index(["REGION", "_REGION", "TIMESLICE", "FUEL", "YEAR"])
 
-    test_data = [(cbc_data, otoole_data,)]
+    test_data = [
+        (
+            cbc_data,
+            otoole_data,
+        )
+    ]
 
     @mark.parametrize("cbc_input,expected", test_data)
-    def test_read_cbc_to_otoole_dataframe(self, cbc_input, expected):
+    def test_read_cbc_to_otoole_dataframe(self, cbc_input, expected, user_config):
         with StringIO(cbc_input) as file_buffer:
-            actual = ReadCbc().read(file_buffer, kwargs={"input_data": {}})[0]["Trade"]
+            actual = ReadCbc(user_config).read(file_buffer, kwargs={"input_data": {}})[
+                0
+            ]["Trade"]
         pd.testing.assert_frame_equal(actual, expected)
 
-    def test_read_cbc_dataframe_to_otoole_dataframe(self):
+    def test_read_cbc_dataframe_to_otoole_dataframe(self, user_config):
 
         prelim_data = pd.DataFrame(
             data=[
@@ -278,7 +282,7 @@ class TestReadCbc:
             ],
             columns=["Variable", "Index", "Value"],
         )
-        actual = ReadCbc()._convert_dataframe_to_csv(prelim_data, {})["Trade"]
+        actual = ReadCbc(user_config)._convert_wide_to_long(prelim_data)["Trade"]
         pd.testing.assert_frame_equal(actual, self.otoole_data)
 
     test_data_4 = [
@@ -289,7 +293,7 @@ class TestReadCbc:
 
     @mark.parametrize("data,expected", test_data_4)
     def test_handle_duplicate_indices(self, data, expected):
-        assert check_duplicate_index(data) is expected
+        assert check_for_duplicates(data) is expected
 
     test_data_5 = [
         (["REGION", "REGION", "TIMESLICE", "FUEL", "YEAR"], 1),
@@ -350,15 +354,15 @@ class TestReadCbc:
     test_data = [(total_cost_cbc, total_cost_cbc_mid)]
 
     @mark.parametrize("cbc_input,expected", test_data, ids=["TotalDiscountedCost"])
-    def test_read_cbc_to_dataframe(self, cbc_input, expected):
-        cbc_reader = ReadCbc()
+    def test_read_cbc_to_dataframe(self, cbc_input, expected, user_config):
+        cbc_reader = ReadCbc(user_config)
         with StringIO(cbc_input) as file_buffer:
             actual = cbc_reader._convert_to_dataframe(file_buffer)
         pd.testing.assert_frame_equal(actual, expected)
 
     test_data_2 = [
         # First case
-        (total_cost_cbc_mid, {}, total_cost_otoole_df),
+        (total_cost_cbc_mid, total_cost_otoole_df),
         # Second case
         (
             pd.DataFrame(
@@ -369,7 +373,6 @@ class TestReadCbc:
                 ],
                 columns=["Variable", "Index", "Value"],
             ),
-            {},
             {
                 "AnnualEmissions": pd.DataFrame(
                     data=[
@@ -384,13 +387,13 @@ class TestReadCbc:
     ]  # type: List
 
     @mark.parametrize(
-        "results,cbc_input,expected",
+        "results,expected",
         test_data_2,
         ids=["TotalDiscountedCost", "AnnualEmissions1"],
     )
-    def test_convert_cbc_to_csv_long(self, results, cbc_input, expected):
-        cbc_reader = ReadCbc()
-        actual = cbc_reader._convert_dataframe_to_csv(results, cbc_input)
+    def test_convert_cbc_to_csv_long(self, results, expected, user_config):
+        cbc_reader = ReadCbc(user_config=user_config)
+        actual = cbc_reader._convert_wide_to_long(results)
         assert isinstance(actual, dict)
         for name, df in actual.items():
             pd.testing.assert_frame_equal(df, expected[name])
@@ -398,10 +401,14 @@ class TestReadCbc:
     test_data_3 = [(total_cost_cbc, {}, total_cost_otoole_df)]  # type: List
 
     @mark.parametrize(
-        "cbc_solution,input_data,expected", test_data_3, ids=["TotalDiscountedCost"],
+        "cbc_solution,input_data,expected",
+        test_data_3,
+        ids=["TotalDiscountedCost"],
     )
-    def test_convert_cbc_to_csv_long_read(self, cbc_solution, input_data, expected):
-        cbc_reader = ReadCbc()
+    def test_convert_cbc_to_csv_long_read(
+        self, cbc_solution, input_data, expected, user_config
+    ):
+        cbc_reader = ReadCbc(user_config=user_config)
         with StringIO(cbc_solution) as file_buffer:
             actual = cbc_reader.read(file_buffer, kwargs={"input_data": input_data})[0][
                 "TotalDiscountedCost"
@@ -409,24 +416,35 @@ class TestReadCbc:
         assert isinstance(actual, pd.DataFrame)
         pd.testing.assert_frame_equal(actual, expected["TotalDiscountedCost"])
 
-    def test_convert_cbc_to_csv_short(self):
-        cbc_results = pd.DataFrame(
-            data=[
-                ["RateOfActivity", "SIMPLICITY,ID,GAS_EXTRACTION,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,IN,GAS_EXTRACTION,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,SD,GAS_EXTRACTION,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,SN,GAS_EXTRACTION,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,WD,GAS_EXTRACTION,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,WN,GAS_EXTRACTION,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,ID,DUMMY,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,IN,DUMMY,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,SD,DUMMY,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,SN,DUMMY,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,WD,DUMMY,1,2014", 1],
-                ["RateOfActivity", "SIMPLICITY,WN,DUMMY,1,2014", 1],
-            ],
-            columns=["Variable", "Index", "Value"],
-        )
+    def test_calculate_results(self, user_config):
+        cbc_results = {
+            "RateOfActivity": pd.DataFrame(
+                data=[
+                    ["SIMPLICITY", "GAS_EXTRACTION", "ID", 1, 2014, 1],
+                    ["SIMPLICITY", "GAS_EXTRACTION", "IN", 1, 2014, 1],
+                    ["SIMPLICITY", "GAS_EXTRACTION", "SD", 1, 2014, 1],
+                    ["SIMPLICITY", "GAS_EXTRACTION", "SN", 1, 2014, 1],
+                    ["SIMPLICITY", "GAS_EXTRACTION", "WD", 1, 2014, 1],
+                    ["SIMPLICITY", "GAS_EXTRACTION", "WN", 1, 2014, 1],
+                    ["SIMPLICITY", "DUMMY", "ID", 1, 2014, 1],
+                    ["SIMPLICITY", "DUMMY", "IN", 1, 2014, 1],
+                    ["SIMPLICITY", "DUMMY", "SD", 1, 2014, 1],
+                    ["SIMPLICITY", "DUMMY", "SN", 1, 2014, 1],
+                    ["SIMPLICITY", "DUMMY", "WD", 1, 2014, 1],
+                    ["SIMPLICITY", "DUMMY", "WN", 1, 2014, 1],
+                ],
+                columns=[
+                    "REGION",
+                    "TECHNOLOGY",
+                    "TIMESLICE",
+                    "MODE_OF_OPERATION",
+                    "YEAR",
+                    "VALUE",
+                ],
+            ).set_index(
+                ["REGION", "TECHNOLOGY", "TIMESLICE", "MODE_OF_OPERATION", "YEAR"]
+            )
+        }
         input_data = {
             "EmissionActivityRatio": pd.DataFrame(
                 data=[["SIMPLICITY", "GAS_EXTRACTION", "CO2", 1, 2014, 1.0]],
@@ -459,14 +477,14 @@ class TestReadCbc:
             columns=["REGION", "EMISSION", "YEAR", "VALUE"],
         ).set_index(["REGION", "EMISSION", "YEAR"])
 
-        cbc_reader = ReadCbc()
-        actual = cbc_reader._convert_dataframe_to_csv(cbc_results, input_data)
+        cbc_reader = ReadCbc(user_config)
+        actual = cbc_reader.calculate_results(cbc_results, input_data)
         assert isinstance(actual, dict)
         pd.testing.assert_frame_equal(actual["AnnualEmissions"], expected)
 
-    def test_solution_to_dataframe(self):
+    def test_solution_to_dataframe(self, user_config):
         input_file = self.total_cost_cbc
-        reader = ReadCbc()
+        reader = ReadCbc(user_config)
         with StringIO(input_file) as file_buffer:
             actual = reader.read(file_buffer)
         expected = self.total_cost_otoole_df
@@ -488,9 +506,9 @@ class TestReadCbc:
 """
     )
 
-    def test_manage_infeasible_variables(self):
+    def test_manage_infeasible_variables(self, user_config):
         input_file = self.cbc_infeasible
-        reader = ReadCbc()
+        reader = ReadCbc(user_config)
         with StringIO(input_file) as file_buffer:
             actual = reader._convert_to_dataframe(file_buffer)
         expected = pd.DataFrame(
@@ -510,23 +528,183 @@ class TestReadCbc:
         pd.testing.assert_frame_equal(actual, expected)
 
 
-class TestCleanOnRead:
-    """Tests that a datapackage is cleaned and indexed upon reading
-    """
+class TestReadGlpk:
+    """Use fixtures instead of StringIO due to the use of context managers in the logic"""
 
-    def test_index_dtypes_available(self):
-        reader = ReadMemory({})
-        config = reader._input_config
+    model_data = dedent(
+        """p lp min 12665 9450 82606
+n p osemosys_fast
+n z cost
+i 1 f
+n i 1 cost
+i 2 u -0
+n i 2 CAa4_Constraint_Capacity[SIMPLICITY,ID,BACKSTOP1,2014]
+i 3 u -0
+n i 3 CAa4_Constraint_Capacity[SIMPLICITY,ID,BACKSTOP1,2015]
+i 300 u 147.115
+n i 300 CAa4_Constraint_Capacity[SIMPLICITY,ID,LNDFORCOV,2015]
+i 301 u 144.231
+n i 301 CAa4_Constraint_Capacity[SIMPLICITY,ID,LNDFORCOV,2016]
+n j 1 SalvageValueStorage[SIMPLICITY,DAM,2014]
+n j 2 SalvageValueStorage[SIMPLICITY,DAM,2015]
+n j 130 StorageLevelSeasonStart[SIMPLICITY,DAM,2,2035]
+n j 131 StorageLevelSeasonStart[SIMPLICITY,DAM,2,2036]
+n j 1025 NewCapacity[SIMPLICITY,WINDPOWER,2039]
+n j 1026 NewCapacity[SIMPLICITY,WINDPOWER,2040]
+n j 1027 RateOfActivity[SIMPLICITY,ID,BACKSTOP1,1,2014]
+n j 1028 RateOfActivity[SIMPLICITY,IN,BACKSTOP1,1,2014]
+"""
+    )
+
+    sol_data = dedent(
+        """c Problem:    osemosys_fast
+c Rows:       12665
+c Columns:    9450
+c Non-zeros:  82606
+c Status:     OPTIMAL
+c Objective:  cost = 4497.31967 (MINimum)
+c
+s bas 12665 9450 f f 4497.31967015205
+i 1 b 3942.19479265207 0
+i 2 b 0 0
+i 3 b 0 0
+i 300 b 37.499 0
+i 301 b 31.7309999999999 0
+j 1 b 0 0
+j 2 b 0 0
+j 130 l 0 0.282765294823514
+j 131 l 0 0.601075755990521
+j 1025 b 0.0305438002923389 0
+j 1026 b 0.0422503416065477 0
+j 1027 l 0 162679.693161095
+j 1028 l 0 81291.0524314291
+e o f
+"""
+    )
+
+    expected_solution = pd.DataFrame(
+        [
+            ["i", 1, "b", 3942.19479265207, 0],
+            ["i", 2, "b", 0, 0],
+            ["i", 3, "b", 0, 0],
+            ["i", 300, "b", 37.499, 0],
+            ["i", 301, "b", 31.7309999999999, 0],
+            ["j", 1, "b", 0, 0],
+            ["j", 2, "b", 0, 0],
+            ["j", 130, "l", 0, 0.282765294823514],
+            ["j", 131, "l", 0, 0.601075755990521],
+            ["j", 1025, "b", 0.0305438002923389, 0],
+            ["j", 1026, "b", 0.0422503416065477, 0],
+            ["j", 1027, "l", 0, 162679.693161095],
+            ["j", 1028, "l", 0, 81291.0524314291],
+        ],
+        columns=["ID", "NUM", "STATUS", "PRIM", "DUAL"],
+    )
+
+    def test_read_model(self, user_config):
+        model_data = self.model_data
+        with StringIO(model_data) as file_buffer:
+            reader = ReadGlpk(user_config=user_config, glpk_model=file_buffer)
+        actual = reader.model
+
+        expected = pd.DataFrame(
+            [
+                ["i", 2, "CAa4_Constraint_Capacity", "SIMPLICITY,ID,BACKSTOP1,2014"],
+                ["i", 3, "CAa4_Constraint_Capacity", "SIMPLICITY,ID,BACKSTOP1,2015"],
+                ["i", 300, "CAa4_Constraint_Capacity", "SIMPLICITY,ID,LNDFORCOV,2015"],
+                ["i", 301, "CAa4_Constraint_Capacity", "SIMPLICITY,ID,LNDFORCOV,2016"],
+                ["j", 1, "SalvageValueStorage", "SIMPLICITY,DAM,2014"],
+                ["j", 2, "SalvageValueStorage", "SIMPLICITY,DAM,2015"],
+                ["j", 130, "StorageLevelSeasonStart", "SIMPLICITY,DAM,2,2035"],
+                ["j", 131, "StorageLevelSeasonStart", "SIMPLICITY,DAM,2,2036"],
+                ["j", 1025, "NewCapacity", "SIMPLICITY,WINDPOWER,2039"],
+                ["j", 1026, "NewCapacity", "SIMPLICITY,WINDPOWER,2040"],
+                ["j", 1027, "RateOfActivity", "SIMPLICITY,ID,BACKSTOP1,1,2014"],
+                ["j", 1028, "RateOfActivity", "SIMPLICITY,IN,BACKSTOP1,1,2014"],
+            ],
+            columns=["ID", "NUM", "NAME", "INDEX"],
+        ).astype({"ID": str, "NUM": "int64", "NAME": str, "INDEX": str})
+
+        pd.testing.assert_frame_equal(actual, expected)
+
+    def test_read_solution(self, user_config):
+        model_data = self.model_data
+        sol_data = self.sol_data
+        with StringIO(model_data) as file_buffer:
+            reader = ReadGlpk(user_config=user_config, glpk_model=file_buffer)
+        with StringIO(sol_data) as file_buffer:
+            actual_status, actual_data = reader.read_solution(file_buffer)
+
+        expected_status = {
+            "name": "osemosys_fast",
+            "status": "OPTIMAL",
+            "objective": 4497.31967,
+        }
+        assert actual_status == expected_status
+
+        pd.testing.assert_frame_equal(actual_data, self.expected_solution)
+
+    def test_merge_model_sol(self, user_config):
+        model_data = self.model_data
+        with StringIO(model_data) as file_buffer:
+            reader = ReadGlpk(user_config=user_config, glpk_model=file_buffer)
+
+        actual = reader._merge_model_sol(self.expected_solution)
+        expected = pd.DataFrame(
+            [
+                ["SalvageValueStorage", "SIMPLICITY,DAM,2014", 0],
+                ["SalvageValueStorage", "SIMPLICITY,DAM,2015", 0],
+                ["StorageLevelSeasonStart", "SIMPLICITY,DAM,2,2035", 0],
+                ["StorageLevelSeasonStart", "SIMPLICITY,DAM,2,2036", 0],
+                ["NewCapacity", "SIMPLICITY,WINDPOWER,2039", 0.0305438002923389],
+                ["NewCapacity", "SIMPLICITY,WINDPOWER,2040", 0.0422503416065477],
+                ["RateOfActivity", "SIMPLICITY,ID,BACKSTOP1,1,2014", 0],
+                ["RateOfActivity", "SIMPLICITY,IN,BACKSTOP1,1,2014", 0],
+            ],
+            columns=["Variable", "Index", "Value"],
+        )
+
+        pd.testing.assert_frame_equal(actual, expected)
+
+    def test_convert_to_dataframe(self, user_config):
+        model_data = self.model_data
+        sol_data = self.sol_data
+        with StringIO(model_data) as file_buffer:
+            reader = ReadGlpk(user_config=user_config, glpk_model=file_buffer)
+        with StringIO(sol_data) as file_buffer:
+            reader._convert_to_dataframe(file_buffer)
+
+    def test_convert_to_dataframe_error(self, user_config):
+        model_data = self.model_data
+        with StringIO(model_data) as file_buffer:
+            reader = ReadGlpk(user_config=user_config, glpk_model=file_buffer)
+
+        sol = pd.DataFrame()
+
+        with raises(TypeError):
+            reader._convert_to_dataframe(sol)
+
+    def test_read_model_error(self, user_config):
+        with raises(TypeError):
+            ReadGlpk(user_config)
+
+
+class TestCleanOnRead:
+    """Tests that a data is cleaned and indexed upon reading"""
+
+    def test_index_dtypes_available(self, user_config):
+        reader = ReadMemory({}, user_config=user_config)
+        config = reader.user_config
         assert "index_dtypes" in config["AccumulatedAnnualDemand"].keys()
         actual = config["AccumulatedAnnualDemand"]["index_dtypes"]
         assert actual == {
             "REGION": "str",
             "FUEL": "str",
-            "YEAR": "int",
+            "YEAR": "int64",
             "VALUE": "float",
         }
 
-    def test_remove_empty_lines(self):
+    def test_remove_empty_lines(self, user_config):
 
         data = [
             ["SIMPLICITY", "ETH", 2014, 1.0],
@@ -537,7 +715,7 @@ class TestCleanOnRead:
         df = pd.DataFrame(data=data, columns=["REGION", "FUEL", "YEAR", "VALUE"])
         parameters = {"AccumulatedAnnualDemand": df}
 
-        reader = ReadMemory(parameters)
+        reader = ReadMemory(parameters, user_config=user_config)
         actual, _ = reader.read()
 
         expected = {
@@ -548,7 +726,7 @@ class TestCleanOnRead:
                 ],
                 columns=["REGION", "FUEL", "YEAR", "VALUE"],
             )
-            .astype({"REGION": str, "FUEL": str, "YEAR": int, "VALUE": float})
+            .astype({"REGION": str, "FUEL": str, "YEAR": "int64", "VALUE": float})
             .set_index(["REGION", "FUEL", "YEAR"])
         }
 
@@ -557,7 +735,7 @@ class TestCleanOnRead:
             actual["AccumulatedAnnualDemand"], expected["AccumulatedAnnualDemand"]
         )
 
-    def test_change_types(self):
+    def test_change_types(self, user_config):
 
         data = [
             ["SIMPLICITY", "ETH", 2014.0, 1],
@@ -568,7 +746,7 @@ class TestCleanOnRead:
         ).astype({"REGION": str, "FUEL": str, "YEAR": float, "VALUE": int})
         parameters = {"AccumulatedAnnualDemand": df}
 
-        reader = ReadMemory(parameters)
+        reader = ReadMemory(parameters, user_config=user_config)
         actual, _ = reader.read()
 
         expected = {
@@ -579,7 +757,7 @@ class TestCleanOnRead:
                 ],
                 columns=["REGION", "FUEL", "YEAR", "VALUE"],
             )
-            .astype({"REGION": str, "FUEL": str, "YEAR": int, "VALUE": float})
+            .astype({"REGION": str, "FUEL": str, "YEAR": "int64", "VALUE": float})
             .set_index(["REGION", "FUEL", "YEAR"])
         }
 
@@ -590,7 +768,7 @@ class TestCleanOnRead:
 
 
 class TestReadMemoryStrategy:
-    def test_read_memory(self):
+    def test_read_memory(self, user_config):
 
         data = [
             ["SIMPLICITY", "ETH", 2014, 1.0],
@@ -601,7 +779,7 @@ class TestReadMemoryStrategy:
         df = pd.DataFrame(data=data, columns=["REGION", "FUEL", "YEAR", "VALUE"])
         parameters = {"AccumulatedAnnualDemand": df}
 
-        actual, default_values = ReadMemory(parameters).read()
+        actual, default_values = ReadMemory(parameters, user_config).read()
 
         expected = {
             "AccumulatedAnnualDemand": pd.DataFrame(
@@ -614,18 +792,50 @@ class TestReadMemoryStrategy:
             actual["AccumulatedAnnualDemand"], expected["AccumulatedAnnualDemand"]
         )
 
+    def test_read_memory_user_config(self, user_config):
+
+        data = [
+            ["SIMPLICITY", "ETH", 2014, 1.0],
+            ["SIMPLICITY", "RAWSUG", 2014, 0.5],
+            ["SIMPLICITY", "ETH", 2015, 1.03],
+            ["SIMPLICITY", "RAWSUG", 2015, 0.51],
+        ]
+        df = pd.DataFrame(data=data, columns=["REGION", "FUEL", "YEAR", "VALUE"])
+        parameters = {"AccumulatedAnnualDemand": df}
+
+        actual, default_values = ReadMemory(parameters, user_config=user_config).read()
+
+        expected = {
+            "AccumulatedAnnualDemand": pd.DataFrame(
+                data=data, columns=["REGION", "FUEL", "YEAR", "VALUE"]
+            ).set_index(["REGION", "FUEL", "YEAR"])
+        }
+
+        assert "AccumulatedAnnualDemand" in actual.keys()
+        pd.testing.assert_frame_equal(
+            actual["AccumulatedAnnualDemand"], expected["AccumulatedAnnualDemand"]
+        )
+
+        assert default_values["AccumulatedAnnualDemand"] == 0
+
 
 class TestConfig:
-    def test_read_config(self):
+    def test_read_config(self, user_config):
 
-        read = ReadDatafile()
+        read = ReadDatafile(user_config=user_config)
 
-        actual = read._read_config()
+        actual = read.user_config
         expected = {
             "default": 0,
             "dtype": "float",
             "indices": ["REGION", "FUEL", "YEAR"],
             "type": "param",
+            "index_dtypes": {
+                "FUEL": "str",
+                "REGION": "str",
+                "VALUE": "float",
+                "YEAR": "int64",
+            },
         }
         assert actual["AccumulatedAnnualDemand"] == expected
 
@@ -645,7 +855,7 @@ class TestReadDatafile:
             end;"""
         )
 
-    def test_convert_amply_to_dataframe(self):
+    def test_convert_amply_to_dataframe(self, user_config):
 
         config = {
             "VariableCost": {
@@ -691,7 +901,7 @@ class TestReadDatafile:
     2 999999.0;"""
         )
 
-        read = ReadDatafile()
+        read = ReadDatafile(user_config=user_config)
 
         actual = read._convert_amply_to_dataframe(amply, config)
         expected = pd.DataFrame(
@@ -705,7 +915,7 @@ class TestReadDatafile:
         )
         pd.testing.assert_frame_equal(actual["VariableCost"], expected)
 
-    def test_convert_amply_data_to_list_of_lists(self):
+    def test_convert_amply_data_to_list_of_lists(self, user_config):
 
         data = {
             "SIMPLICITY": {
@@ -719,34 +929,34 @@ class TestReadDatafile:
             ["SIMPLICITY", "GAS_EXTRACTION", 1.0, 2014.0, 7.5],
             ["SIMPLICITY", "GAS_EXTRACTION", 2.0, 2014.0, 999999.0],
         ]
-        read = ReadDatafile()
+        read = ReadDatafile(user_config=user_config)
         actual = read._convert_amply_data_to_list(data)
         assert actual == expected
 
-    def test_load_parameters(self):
+    def test_load_parameters(self, user_config):
 
         config = {"TestParameter": {"type": "param", "indices": ["index1", "index2"]}}
-        read = ReadDatafile()
+        read = ReadDatafile(user_config=user_config)
         actual = read._load_parameter_definitions(config)
         expected = "param TestParameter {index1,index2};\n"
         assert actual == expected
 
-    def test_load_sets(self):
+    def test_load_sets(self, user_config):
 
         config = {"TestSet": {"type": "set"}}
 
-        read = ReadDatafile()
+        read = ReadDatafile(user_config=user_config)
         actual = read._load_parameter_definitions(config)
         expected = "set TestSet;\n"
         assert actual == expected
 
-    def test_catch_error_no_parameter(self, caplog):
+    def test_catch_error_no_parameter(self, caplog, user_config):
         """Fix for https://github.com/OSeMOSYS/otoole/issues/70 where parameter in
         datafile but not in config causes error.  Instead, throw warning (and advise
         that user should use a custom configuration).
         """
-        read = ReadDatafile()
-        config = read.input_config
+        read = ReadDatafile(user_config=user_config)
+        config = read.user_config
         amply_datafile = amply = Amply(
             """set REGION;
             set TECHNOLOGY;
@@ -762,11 +972,10 @@ class TestReadDatafile:
 
 
 class TestReadExcel:
-    def test_read_excel_yearsplit(self):
-        """
-        """
+    def test_read_excel_yearsplit(self, user_config):
+        """ """
         spreadsheet = os.path.join("tests", "fixtures", "combined_inputs.xlsx")
-        reader = ReadExcel()
+        reader = ReadExcel(user_config=user_config)
         actual, _ = reader.read(spreadsheet)
         data = [
             ["IW0016", 2017, 0.238356164],
@@ -814,18 +1023,17 @@ class TestReadExcel:
 
         assert (actual_data == expected).all()
 
-    def test_narrow_parameters(self):
+    def test_narrow_parameters(self, user_config):
         data = [
             ["IW0016", 0.238356164, 0.238356164, 0.238356164],
             ["IW1624", 0.119178082, 0.119178082, 0.119178082],
             ["IH0012", 0.071232876, 0.071232876, 0.071232876],
         ]
         df = pd.DataFrame(data, columns=["TIMESLICE", 2017, 2018, 2019])
-        config_details = ["TIMESLICE", "YEAR"]
         name = "YearSplit"
 
-        reader = ReadExcel()
-        actual = reader._check_parameter(df, config_details, name)
+        reader = ReadExcel(user_config=user_config)
+        actual = reader._convert_wide_2_narrow(df, name)
         data = [
             ["IW0016", 2017, 0.238356164],
             ["IW1624", 2017, 0.119178082],
@@ -844,7 +1052,18 @@ class TestReadExcel:
         )
         pd.testing.assert_frame_equal(actual, expected)
 
-    def test_check_index(self):
+    def test_invalid_column_name(self, user_config):
+        data = [
+            ["ELC", "IW0016", 0.238356164, 0.238356164, 0.238356164],
+            ["ELC", "IW1624", 0.119178082, 0.119178082, 0.119178082],
+            ["ELC", "IH0012", 0.071232876, 0.071232876, 0.071232876],
+        ]
+        df = pd.DataFrame(data, columns=["VALUE", "TIMESLICE", 2017, 2018, 2019])
+        reader = ReadExcel(user_config=user_config)
+        with raises(OtooleError):
+            reader._convert_wide_2_narrow(df=df, name="example")
+
+    def test_check_index(self, user_config):
 
         data = [
             ["IW0016", 2017, 0.238356164],
@@ -857,16 +1076,130 @@ class TestReadExcel:
             ["IH0012", 2018, 0.071232876],
             ["IH0012", 2019, 0.071232876],
         ]
-        fixture = {
+        df = {
             "YearSplit": pd.DataFrame(data, columns=["TIMESLICE", "YEAR", "VALUE"])
             .astype({"YEAR": object})
             .set_index(["TIMESLICE", "YEAR"])
         }
-        reader = ReadExcel()
-        actual = reader._check_index(fixture)
+        reader = ReadExcel(user_config=user_config)
+        actual = reader._check_index(df)
         expected = {
             "YearSplit": pd.DataFrame(
                 data, columns=["TIMESLICE", "YEAR", "VALUE"]
             ).set_index(["TIMESLICE", "YEAR"])
         }
         pd.testing.assert_frame_equal(actual["YearSplit"], expected["YearSplit"])
+
+
+class TestReadCSV:
+    accumulated_annual_demand_df = pd.DataFrame(
+        [
+            ["SIMPLICITY", "ETH", 2014, 1.0],
+            ["SIMPLICITY", "RAWSUG", 2014, 0.5],
+            ["SIMPLICITY", "ETH", 2015, 1.03],
+            ["SIMPLICITY", "RAWSUG", 2015, 0.51],
+            ["SIMPLICITY", "ETH", 2016, 1.061],
+            ["SIMPLICITY", "RAWSUG", 2016, 0.519],
+        ],
+        columns=["REGION", "FUEL", "YEAR", "VALUE"],
+    )
+    availability_factor_df = pd.DataFrame(
+        columns=["REGION", "TECHNOLOGY", "YEAR", "VALUE"]
+    )
+
+    test_data = [
+        ("AccumulatedAnnualDemand", accumulated_annual_demand_df),
+        ("AvailabilityFactor", availability_factor_df),
+    ]
+
+    @mark.parametrize("parameter, expected", test_data, ids=["full", "empty"])
+    def test_get_input_data_empty(self, user_config, parameter, expected):
+        reader = ReadCsv(user_config=user_config)
+        filepath = os.path.join("tests", "fixtures", "data")
+        details = user_config[parameter]
+        actual = reader._get_input_data(filepath, parameter, details)
+
+        pd.testing.assert_frame_equal(actual, expected)
+
+    def test_read_default_values_csv_fails(self, user_config, tmp_path):
+        f = tmp_path / "input/default_values.csv"
+        f.parent.mkdir()
+        f.touch()
+
+        reader = ReadCsv(user_config=user_config)
+        with raises(OtooleDeprecationError):
+            reader._check_for_default_values_csv(f)
+
+    def test_read_default_values_csv(self, user_config):
+        filepath = os.path.join(
+            "tests", "fixtures", "data", "AccumulatedAnnualDemand.csv"
+        )
+        reader = ReadCsv(user_config=user_config)
+        actual = reader._check_for_default_values_csv(filepath)
+        expected = None
+        assert actual == expected
+
+
+class TestReadTabular:
+    """Methods shared for csv and excel"""
+
+    test_data = [
+        (True, ["REGION", "TECHNOLOGY"], {}),
+        (
+            False,
+            ["REGION", "TECHNOLOGY"],
+            {"REGION": str.strip, "TECHNOLOGY": str.strip},
+        ),
+    ]
+
+    @mark.parametrize(
+        "keep_whitespace, indices, expected",
+        test_data,
+        ids=["create_empty", "create_full"],
+    )
+    def test_whitespace_converter(
+        self, user_config, keep_whitespace, indices, expected
+    ):
+        reader = ReadCsv(user_config=user_config, keep_whitespace=keep_whitespace)
+        actual = reader._whitespace_converter(indices)
+        assert actual == expected
+
+
+class TestLongifyData:
+    """Tests for the preprocess.longify_data module"""
+
+    # example availability factor data
+    data_valid = pd.DataFrame(
+        [
+            ["SIMPLICITY", "ETH", 2014, 1.0],
+            ["SIMPLICITY", "RAWSUG", 2014, 0.5],
+            ["SIMPLICITY", "ETH", 2015, 1.03],
+            ["SIMPLICITY", "RAWSUG", 2015, 0.51],
+            ["SIMPLICITY", "ETH", 2016, 1.061],
+            ["SIMPLICITY", "RAWSUG", 2016, 0.519],
+        ],
+        columns=["REGION", "FUEL", "YEAR", "VALUE"],
+    )
+
+    data_invalid = pd.DataFrame(
+        [
+            ["SIMPLICITY", "ETH", "invalid", 1.0],
+            ["SIMPLICITY", "RAWSUG", 2014, 0.5],
+        ],
+        columns=["REGION", "FUEL", "YEAR", "VALUE"],
+    )
+
+    def test_check_datatypes_valid(self, user_config):
+        df = self.data_valid.astype(
+            {"REGION": str, "FUEL": str, "YEAR": int, "VALUE": float}
+        )
+        actual = check_datatypes(df, user_config, "AvailabilityFactor")
+        expected = df.copy()
+
+        pd.testing.assert_frame_equal(actual, expected)
+
+    def test_check_datatypes_invalid(self, user_config):
+        df = self.data_invalid
+
+        with raises(ValueError):
+            check_datatypes(df, user_config, "AvailabilityFactor")
