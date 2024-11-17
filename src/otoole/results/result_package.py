@@ -793,7 +793,7 @@ def capital_recovery_factor(
         crf = discount_rate_idv.reindex(index)
         # This is a hack to get around the fact that the discount rate is
         # indexed by REGION and not REGION, TECHNOLOGY
-        crf[:] = values
+        crf[::1] = values
         crf["VALUE"] = calc_crf(crf, operational_life["VALUE"])
 
     return crf.reset_index()[["REGION", "TECHNOLOGY", "VALUE"]].set_index(
